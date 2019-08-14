@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name megaobd2)(type KiCad)(uri ${KIPRJMOD}/megaobd2.pretty)(options "")(descr ""))
+)
