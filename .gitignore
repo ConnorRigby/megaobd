@@ -1,2 +1,5 @@
 /OBD9141
+/build
 *.tmp
+*.sch-bak
+*.kicad_pcb-bak
