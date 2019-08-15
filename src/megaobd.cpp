@@ -55,6 +55,10 @@ struct status {
   int16_t barometer;
   int16_t map;
   int16_t mat;
+  int16_t clt;
+  int16_t tps;
+  uint16_t maf;
+  uint16_t vss1;
 };
 
 struct payload msPayload;
@@ -140,6 +144,109 @@ void loop() {
   
   // Process OBD requests
   OBD.loop();
+  
+  /** 
+  Miata ECU supports the following type 1 PIDS:
+    0x00 - PIDs supported (01-20) [01, 03-07, 0C-11, 13-15, 1C, 20]
+    0x01 - Monitor status since DTCs cleared
+    0x03 - Fuel system status
+    0x04 - Calculated engine load value
+    0x05 - Engine coolant temperature
+    0x06 - Short term fuel % trim - Bank 1
+    0x07 - Long term fuel % trim - Bank 1
+    0x0C - Engine RPM
+    0x0D - Vehicle speed
+    0x0E - Timing advance
+    0x0F - Intake air temperature
+    0x10 - MAF air flow rate
+    0x11 - Throttle position
+    0x13 - Oxygen sensors present
+    0x14 - Bank 1, Sensor 1: O2S Voltage, Short term fuel trim
+    0x15 - Bank 1, Sensor 2: O2S Voltage, Short term fuel trim
+    0x1C - OBD standards this vehicle conforms to
+    0x20 - PIDs supported (21-40)
+    0x21 - Distance traveled with MIL on
+  */
+  // Helper vars
+  uint8_t a;
+  uint8_t b;
+
+  // Supported PIDS: [01, 03-07, 0C-11, 13-15, 1C, 20]
+  // 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F 20
+  // 1  0  1  1  1  1  1  0  0  0  0  1  1  1  1  1  1  0  1  1  1  0  0  0  0  0  0  1  0  0  0  1
+  // 10111110000111111011100000010001
+  OBD.setAnswer(0x01, 0x00, 32, 0b10111110000111111011100000010001);
+
+  // Note that test availability is indicated by set (1) bit and completeness is indicated by reset (0) bit. 
+  // ByteA: MIL + number of active codes
+  // ByteB: Spark mode and tests available/complete
+  // ByteC: CARB tests available
+  // ByteD: CARB tests complete 
+  OBD.setAnswer(0x01, 0x01, 32, 0b0000000000000111111111110000);
+
+  // Fuel System status
+  // Should be built from the `msStatus.squirt` 
+  // OBD.setAnswer(0x01, 0x03, );
+
+  // Engine status
+  // Should be built from the `msStatus.engine`
+  // OBD.setAnswer(0x01, 0x04, );
+
+  // Coolant
+  // This may need to be converted to C?
+  OBD.setAnswer(0x01, 0x05, (uint8_t)(msStatus.clt + 40));
+
+  // Short term fuel trim
+  // OBD.setAnswer(0x01, 0x06, (uint8_t));
+
+  // Long term fuel trim
+  // OBD.setAnswer(0x01, 0x07, (uint8_t));
+
+  // Engine RPM
+  a = msStatus.rpm & 0xFF;
+  b = msStatus.rpm >> 8;
+  uint16_t rpm = (256 * a + b) / 4;
+  OBD.setAnswer(0x01, 0x0C, (uint16_t)rpm);
+
+  // VSS
+  // OBD.setAnswer(0x01, 0x0D, (uint8_t) );
+
+  // Advance
+  uint8_t advance = (msStatus.advance / 2) - 64;
+  OBD.setAnswer(0x01, 0x0E, (uint8_t)advance);
+
+  // IAT (may need to convert to C?)
+  OBD.setAnswer(0x01, 0x0F, (uint8_t)(msStatus.mat - 40));
+
+  // MAF
+  a = msStatus.maf & 0xFF;
+  b = msStatus.maf >> 8;
+  uint16_t maf = (256 * a + b) / 100;
+  OBD.setAnswer(0x01, 0x10, (uint16_t)maf);
+
+  // TPS
+  uint8_t tps = (100/255) * msStatus.tps;
+  OBD.setAnswer(0x01, 0x11, (uint8_t)tps);
+
+  // Number of O2 sensors
+  // These bytes might be backwards, but the result is the same?
+  OBD.setAnswer(0x01, 0x13, (uint8_t)0b11001100);
+
+  // O2 Sensors (2 is not used)
+  // TODO 0x14 second byte should be the same as pid 0x06
+  // TODO the first byte should be voltage of the sensor for both answers
+  OBD.setAnswer(0x01, 0x14, (uint16_t)0x00FF);
+  OBD.setAnswer(0x01, 0x15, (uint16_t)0x00FF);
+
+  // OBD compliance
+  // 0x01 = CARB
+  OBD.setAnswer(0x01, 0x1C, (uint8_t)0x01);
+
+  // PIDs 21-40
+  // Miata only supports 21
+  OBD.setAnswer(0x01, 0x20, 32, 0b10000000000000000000000000000000);
+
+  OBD.setAnswer(0x01, 0x21, (uint16_t)0);
 
   // End loop with telling MegaSquirt we want another status.
   writeMegasquirtPayload();
@@ -179,7 +286,15 @@ void processMegasquirtPayload() {
       // int16_t msStatus.map;
       realTimeValue(&msStatus.map, 18, STATUS_INT16);
       // int16_t msStatus.mat;
-      realTimeValue(&msStatus.mat, 10, STATUS_INT16);
+      realTimeValue(&msStatus.mat, 20, STATUS_INT16);
+      // int16_t msStatus.clt;
+      realTimeValue(&msStatus.clt, 22, STATUS_INT16);
+      // int16_t msStatus.tps;
+      realTimeValue(&msStatus.tps, 24, STATUS_INT16);
+      // uint16_t maf;
+      realTimeValue(&msStatus.maf, 210, STATUS_UINT16);
+      // uint16_t vss1;
+      realTimeValue(&msStatus.vss1, 336, STATUS_INT16);
 
     break;
     
