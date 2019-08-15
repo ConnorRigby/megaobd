@@ -1,3 +1,6 @@
 [submodule "libraries/AltSoftSerial"]
 	path = libraries/AltSoftSerial
 	url = https://github.com/PaulStoffregen/AltSoftSerial.git
+[submodule "libraries/CRC32"]
+	path = libraries/CRC32
+	url = https://github.com/bakercp/CRC32.git
