@@ -7,10 +7,11 @@
 #define OBD_RX_PIN 8
 AltSoftSerial OBD_SERIAL;
 OBD9141sim OBD;
+CRC32 CRC;
 
 // Megasquirt Constants
 #define MEGASQUIRT_SERIAL Serial
-const byte CMD_A_PAYLOAD[7] = {0x0, 0x1, 0x41, 0xD3, 0xD9, 0x9E, 0x8B};
+const uint8_t CMD_A_PAYLOAD[7] = {0x0, 0x1, 0x41, 0xD3, 0xD9, 0x9E, 0x8B};
 
 enum STATUS_RECV_STATE {
   STATUS_RECV_SIZE_MSB,
@@ -24,6 +25,9 @@ enum STATUS_RECV_STATE {
 
 #define BUFFER_MAX_SIZE 0xFFFF
 
+/**
+  Structure for holding state of a Megasquirt serial command.
+ */
 struct payload {
   STATUS_RECV_STATE state;
   uint16_t size;
@@ -40,6 +44,9 @@ typedef enum status_field {
   STATUS_INT16
 } status_field_type_t;
 
+/**
+  Structure for holding MegaSquirt A command
+ */
 struct status {
   uint16_t secs;
   uint16_t pw1;
@@ -61,10 +68,33 @@ struct status {
   uint16_t vss1;
 };
 
-struct payload msPayload;
-struct status msStatus;
+/**
+  Structure for holding fault codes
+ */
+struct dtc {
+  uint16_t fuel;
+  uint8_t load;
+  uint8_t clt;
+  uint8_t shortTermTrim;
+  uint8_t longTermTrim;
+  uint16_t rpm;
+  uint8_t vss;
+};
 
-CRC32 CRC;
+/**
+  Used to store fault codes
+ */
+struct dtc faults[16];
+
+/**
+  Stores the most recent payload from Megasquirt
+ */
+struct payload msPayload;
+
+/**
+  Stores the most recent result of the `A` command
+ */
+struct status msStatus;
 
 /** 
  * Writes the A command to the serial port.
@@ -142,7 +172,8 @@ void loop() {
     }
   }
   
-  // Process OBD requests
+  // Process OBD requests. 
+  // Only 8 answers can be sent at a time.
   OBD.loop();
   
   /** 
@@ -211,6 +242,9 @@ void loop() {
   // VSS
   // OBD.setAnswer(0x01, 0x0D, (uint8_t) );
 
+  // Every 8 answers.
+  OBD.loop();
+
   // Advance
   uint8_t advance = (msStatus.advance / 2) - 64;
   OBD.setAnswer(0x01, 0x0E, (uint8_t)advance);
@@ -228,6 +262,7 @@ void loop() {
   uint8_t tps = (100/255) * msStatus.tps;
   OBD.setAnswer(0x01, 0x11, (uint8_t)tps);
 
+
   // Number of O2 sensors
   // These bytes might be backwards, but the result is the same?
   OBD.setAnswer(0x01, 0x13, (uint8_t)0b11001100);
@@ -242,11 +277,43 @@ void loop() {
   // 0x01 = CARB
   OBD.setAnswer(0x01, 0x1C, (uint8_t)0x01);
 
+  // Every 8 answers.
+  OBD.loop();
+
   // PIDs 21-40
   // Miata only supports 21
   OBD.setAnswer(0x01, 0x20, 32, 0b10000000000000000000000000000000);
 
   OBD.setAnswer(0x01, 0x21, (uint16_t)0);
+
+  /**
+  Miata ECU supports the following type 2 PIDS:
+    0x00 - PIDs supported (01-20)
+    0x02 - Freeze DTC
+    0x03 - Fuel system status
+    0x04 - Calculated engine load value
+    0x05 - Engine coolant temperature
+    0x06 - Short term fuel % trim - Bank 1
+    0x07 - Long term fuel % trim - Bank 1
+    0x0C - Engine RPM
+    0x0D - Vehicle speed
+  */
+
+  // Supported PIDS: [01, 02, 03, 04, 05, 06, 07, 0C, 0D]
+  OBD.setAnswer(0x02, 0x01, 32, 0b1111111100011000000000000000000);
+
+  // OBD.setAnswer(0x02, 0x02);
+  // OBD.setAnswer(0x02, 0x03)
+  // OBD.setAnswer(0x02, 0x04)
+  // OBD.setAnswer(0x02, 0x05)
+  // OBD.setAnswer(0x02, 0x06)
+
+  // Every 8 answers.
+  OBD.loop();
+
+  // OBD.setAnswer(0x02, 0x07)
+  // OBD.setAnswer(0x02, 0x0C)
+  // OBD.setAnswer(0x02, 0x0D)
 
   // End loop with telling MegaSquirt we want another status.
   writeMegasquirtPayload();
